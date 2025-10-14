@@ -119,38 +119,38 @@ async def check_pronunciation(
                 import random
                 pronunciation_score = random.randint(75, 90)
                 
-                # レベル別の評価
+                # レベル別の評価（日本語）
                 if level == "beginner":
                     if pronunciation_score >= 75:
-                        rating = "Excellent"
-                        message = "Great job! Your pronunciation is very close to native."
+                        rating = "素晴らしい"
+                        message = "とても良い発音です！ネイティブに近い発音ができています。"
                     else:
-                        rating = "Good"
-                        message = "Good pronunciation! Keep practicing."
+                        rating = "良い"
+                        message = "良い発音です！練習を続けましょう。"
                 elif level == "intermediate":
                     if pronunciation_score >= 85:
-                        rating = "Excellent"
-                        message = "Excellent pronunciation!"
+                        rating = "素晴らしい"
+                        message = "素晴らしい発音です！"
                     else:
-                        rating = "Good"
-                        message = "Good pronunciation! Keep practicing to improve further."
+                        rating = "良い"
+                        message = "良い発音です！さらに練習して上達しましょう。"
                 else:  # advanced
                     if pronunciation_score >= 90:
-                        rating = "Excellent"
-                        message = "Perfect pronunciation!"
+                        rating = "完璧"
+                        message = "完璧な発音です！"
                     else:
-                        rating = "Good"
-                        message = "Good pronunciation! Work on perfecting the nuances."
+                        rating = "良い"
+                        message = "良い発音です！細かいニュアンスを磨きましょう。"
                 
                 feedback = {
                     "overall": message,
                     "rating": rating,
                     "details": [
-                        {"aspect": "Pitch", "comment": "Your pitch is good!"},
-                        {"aspect": "Timing", "comment": "Your timing is excellent!"},
-                        {"aspect": "Volume", "comment": "Clear pronunciation!"}
+                        {"aspect": "ピッチ", "comment": "ピッチが良いです！"},
+                        {"aspect": "タイミング", "comment": "タイミングが素晴らしいです！"},
+                        {"aspect": "音量", "comment": "はっきりとした発音です！"}
                     ],
-                    "tips": "Keep practicing with native speakers!"
+                    "tips": "ネイティブスピーカーと一緒に練習を続けましょう！"
                 }
                 
                 response = {
