@@ -38,11 +38,14 @@ ENV/
 
 # Uploads
 uploads/
-*.wav
-*.mp3
-*.m4a
-*.ogg
-*.flac
+uploads/*.wav
+uploads/*.mp3
+uploads/*.m4a
+uploads/*.ogg
+uploads/*.flac
+
+# 参照音声は含める（除外しない）
+!reference_audio/*.wav
 
 # Logs
 *.log
