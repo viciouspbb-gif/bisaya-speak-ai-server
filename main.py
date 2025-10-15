@@ -56,11 +56,17 @@ def get_reference_audio_path(word: str) -> Path:
     - reference_path: 参照音声ファイルのパス
     """
     # 単語をファイル名に変換（スペースをアンダースコアに）
-    safe_word = word.lower().replace(" ", "_").replace("'", "")
-    reference_filename = f"{safe_word}_ref.wav"
-    reference_path = REFERENCE_DIR / reference_filename
+    safe_word = word.lower().replace(" ", "_").replace("'", "").replace(",", "")
     
-    return reference_path
+    # 複数の拡張子を試す（MP3優先、次にWAV）
+    for ext in [".mp3", ".wav", ".m4a", ".ogg"]:
+        reference_filename = f"{safe_word}_ref{ext}"
+        reference_path = REFERENCE_DIR / reference_filename
+        if reference_path.exists():
+            return reference_path
+    
+    # 見つからない場合はMP3パスを返す（エラーハンドリング用）
+    return REFERENCE_DIR / f"{safe_word}_ref.mp3"
 
 
 @app.post("/api/pronounce/check")
