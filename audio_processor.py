@@ -32,6 +32,44 @@ class AudioProcessor:
         import warnings
         warnings.filterwarnings('ignore')
         
+        # 3GPファイルの場合、pydubで変換
+        if file_path.lower().endswith(('.3gp', '.amr')):
+            try:
+                from pydub import AudioSegment
+                import tempfile
+                import os
+                
+                print(f"3GPファイルを変換中: {file_path}")
+                
+                # 3GPファイルを読み込み
+                audio = AudioSegment.from_file(file_path, format="3gp")
+                
+                # モノラルに変換
+                audio = audio.set_channels(1)
+                
+                # サンプリングレートを設定
+                audio = audio.set_frame_rate(self.sample_rate)
+                
+                # 一時WAVファイルを作成
+                temp_wav = tempfile.mktemp(suffix='.wav')
+                
+                # WAVとしてエクスポート
+                audio.export(temp_wav, format="wav")
+                
+                # WAVファイルを読み込み
+                audio_data, sr = librosa.load(temp_wav, sr=self.sample_rate, mono=True)
+                
+                # 一時ファイルを削除
+                os.remove(temp_wav)
+                
+                print(f"3GP変換成功: {len(audio_data)} samples")
+                return audio_data, sr
+            except Exception as e:
+                print(f"Error converting 3GP with pydub: {e}")
+                import traceback
+                print(traceback.format_exc())
+                # pydubが失敗したら通常の方法を試す
+        
         # librosaで読み込み（バックエンドに依存しない方法）
         try:
             audio_data, sr = librosa.load(file_path, sr=self.sample_rate, mono=True)
@@ -150,12 +188,30 @@ class AudioProcessor:
         # DTWで距離を計算
         distance, _ = fastdtw(user_mfcc_t, reference_mfcc_t, dist=euclidean)
         
+        print(f"DTW距離: {distance}")
+        
         # 距離を類似度スコアに変換（0-100の範囲）
         # 距離が小さいほど類似度が高い
-        # 経験的な正規化: distance が 0-1000 程度の範囲を想定
-        max_distance = 1000.0
-        normalized_distance = min(distance / max_distance, 1.0)
-        similarity_score = (1.0 - normalized_distance) * 100
+        # 実際の測定値に基づいて調整:
+        # - 完璧な発音: 5000以下 → 90-100点
+        # - 良い発音: 5000-15000 → 60-90点
+        # - まあまあ: 15000-25000 → 30-60点
+        # - 悪い/無音: 25000以上 → 0-30点
+        
+        if distance < 5000:
+            # 完璧な発音
+            similarity_score = 90 + (1 - distance / 5000) * 10
+        elif distance < 15000:
+            # 良い発音
+            similarity_score = 60 + (1 - (distance - 5000) / 10000) * 30
+        elif distance < 25000:
+            # まあまあ
+            similarity_score = 30 + (1 - (distance - 15000) / 10000) * 30
+        else:
+            # 悪い/無音
+            similarity_score = max(0, 30 - (distance - 25000) / 1000)
+        
+        print(f"スコア: {similarity_score:.2f}")
         
         return max(0, min(100, similarity_score))
     
@@ -244,19 +300,19 @@ class AudioProcessor:
         
         level_thresholds = thresholds.get(user_level, thresholds["beginner"])
         
-        # 総合評価を決定
+        # 総合評価を決定（日本語）
         if similarity_score >= level_thresholds["excellent"]:
-            overall_rating = "Excellent"
-            overall_message = "Great job! Your pronunciation is very close to native."
+            overall_rating = "素晴らしい"
+            overall_message = "とても良い発音です！ネイティブに近い発音ができています。"
         elif similarity_score >= level_thresholds["good"]:
-            overall_rating = "Good"
-            overall_message = "Good pronunciation! Keep practicing to improve further."
+            overall_rating = "良い"
+            overall_message = "良い発音です！さらに練習して上達しましょう。"
         elif similarity_score >= level_thresholds["fair"]:
-            overall_rating = "Fair"
-            overall_message = "Fair pronunciation. Focus on the specific sounds mentioned below."
+            overall_rating = "まあまあ"
+            overall_message = "まあまあの発音です。下記の詳細を参考に改善しましょう。"
         else:
-            overall_rating = "Needs Improvement"
-            overall_message = "Keep practicing! Pay attention to the feedback below."
+            overall_rating = "要改善"
+            overall_message = "練習を続けましょう！下記のフィードバックに注意してください。"
         
         # 詳細なフィードバックを生成
         details = []
@@ -266,18 +322,18 @@ class AudioProcessor:
         if pitch_diff > 50:
             if user_features['pitch_mean'] > reference_features['pitch_mean']:
                 details.append({
-                    "aspect": "Pitch",
-                    "comment": "Your pitch is slightly higher than the reference. Try speaking a bit lower."
+                    "aspect": "ピッチ",
+                    "comment": "ピッチが少し高めです。もう少し低く話してみましょう。"
                 })
             else:
                 details.append({
-                    "aspect": "Pitch",
-                    "comment": "Your pitch is slightly lower than the reference. Try speaking a bit higher."
+                    "aspect": "ピッチ",
+                    "comment": "ピッチが少し低めです。もう少し高く話してみましょう。"
                 })
         else:
             details.append({
-                "aspect": "Pitch",
-                "comment": "Your pitch is good!"
+                "aspect": "ピッチ",
+                "comment": "ピッチが良いです！"
             })
         
         # 音声の長さの比較
@@ -285,18 +341,18 @@ class AudioProcessor:
         if duration_diff > 0.5:
             if user_features['duration'] > reference_features['duration']:
                 details.append({
-                    "aspect": "Timing",
-                    "comment": "You're speaking a bit slowly. Try to match the native speaker's pace."
+                    "aspect": "タイミング",
+                    "comment": "少しゆっくり話しています。ネイティブのペースに合わせてみましょう。"
                 })
             else:
                 details.append({
-                    "aspect": "Timing",
-                    "comment": "You're speaking a bit quickly. Try to slow down slightly."
+                    "aspect": "タイミング",
+                    "comment": "少し早口です。もう少しゆっくり話してみましょう。"
                 })
         else:
             details.append({
-                "aspect": "Timing",
-                "comment": "Your timing is excellent!"
+                "aspect": "タイミング",
+                "comment": "タイミングが素晴らしいです！"
             })
         
         # エネルギー（音量）の比較
@@ -304,22 +360,22 @@ class AudioProcessor:
         if rms_diff > 0.05:
             if user_features['rms_mean'] > reference_features['rms_mean']:
                 details.append({
-                    "aspect": "Volume",
-                    "comment": "Try speaking a bit softer to match the reference."
+                    "aspect": "音量",
+                    "comment": "もう少し小さな声で話してみましょう。"
                 })
             else:
                 details.append({
-                    "aspect": "Volume",
-                    "comment": "Try speaking a bit louder for clearer pronunciation."
+                    "aspect": "音量",
+                    "comment": "もう少し大きな声ではっきりと話してみましょう。"
                 })
         
         # レベル別の追加アドバイス
         if user_level == "beginner":
-            additional_tips = "Focus on listening to native speakers and repeating after them."
+            additional_tips = "ネイティブスピーカーの音声を聞いて、繰り返し練習しましょう。"
         elif user_level == "intermediate":
-            additional_tips = "Pay attention to subtle sound differences and intonation patterns."
+            additional_tips = "細かい音の違いやイントネーションのパターンに注意しましょう。"
         else:  # advanced
-            additional_tips = "Work on perfecting the nuances and natural flow of speech."
+            additional_tips = "ニュアンスや自然な話し方の流れを完璧にしましょう。"
         
         feedback = {
             "overall": overall_message,

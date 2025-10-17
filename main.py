@@ -55,8 +55,8 @@ def get_reference_audio_path(word: str) -> Path:
     Returns:
     - reference_path: 参照音声ファイルのパス
     """
-    # 単語をファイル名に変換（スペースをアンダースコアに）
-    safe_word = word.lower().replace(" ", "_").replace("'", "").replace(",", "")
+    # 単語をファイル名に変換（スペースをアンダースコアに、記号を削除）
+    safe_word = word.lower().replace(" ", "_").replace("'", "").replace(",", "").replace("?", "").replace("!", "").replace(".", "").replace("-", "_")
     
     # 複数の拡張子を試す（MP3優先、次にWAV）
     for ext in [".mp3", ".wav", ".m4a", ".ogg"]:
@@ -121,43 +121,33 @@ async def check_pronunciation(
             reference_path = get_reference_audio_path(word)
             
             if reference_path.exists():
-                # 一時的にダミースコアを返す（音声処理のバックエンドが不足しているため）
-                import random
-                pronunciation_score = random.randint(75, 90)
-                
-                # レベル別の評価（日本語）
-                if level == "beginner":
-                    if pronunciation_score >= 75:
-                        rating = "素晴らしい"
-                        message = "とても良い発音です！ネイティブに近い発音ができています。"
-                    else:
-                        rating = "良い"
-                        message = "良い発音です！練習を続けましょう。"
-                elif level == "intermediate":
-                    if pronunciation_score >= 85:
-                        rating = "素晴らしい"
-                        message = "素晴らしい発音です！"
-                    else:
-                        rating = "良い"
-                        message = "良い発音です！さらに練習して上達しましょう。"
-                else:  # advanced
-                    if pronunciation_score >= 90:
-                        rating = "完璧"
-                        message = "完璧な発音です！"
-                    else:
-                        rating = "良い"
-                        message = "良い発音です！細かいニュアンスを磨きましょう。"
-                
-                feedback = {
-                    "overall": message,
-                    "rating": rating,
-                    "details": [
-                        {"aspect": "ピッチ", "comment": "ピッチが良いです！"},
-                        {"aspect": "タイミング", "comment": "タイミングが素晴らしいです！"},
-                        {"aspect": "音量", "comment": "はっきりとした発音です！"}
-                    ],
-                    "tips": "ネイティブスピーカーと一緒に練習を続けましょう！"
-                }
+                # 実際の音声処理で発音を比較
+                try:
+                    print(f"音声処理開始: user={file_path}, reference={reference_path}")
+                    comparison = audio_processor.compare_pronunciation(
+                        str(file_path),
+                        str(reference_path),
+                        level
+                    )
+                    pronunciation_score = comparison['similarity_score']
+                    feedback = comparison['feedback']
+                    print(f"音声処理成功: score={pronunciation_score}")
+                except Exception as e:
+                    import traceback
+                    print(f"音声処理エラー: {e}")
+                    print(traceback.format_exc())
+                    # エラー時はダミースコア
+                    import random
+                    pronunciation_score = random.randint(75, 90)
+                    print(f"ダミースコア使用: {pronunciation_score}")
+                    
+                    # ダミーフィードバック
+                    feedback = {
+                        "overall": "エラーが発生しました。もう一度お試しください。",
+                        "rating": "エラー",
+                        "details": [],
+                        "tips": "もう一度録音してください。"
+                    }
                 
                 response = {
                     "status": "success",
@@ -244,6 +234,24 @@ async def health_check():
         "upload_dir_writable": os.access(UPLOAD_DIR, os.W_OK),
         "timestamp": datetime.now().isoformat()
     }
+
+
+@app.get("/api/reference-audio/{word}")
+async def get_reference_audio(word: str):
+    """参照音声ファイルを取得"""
+    from fastapi.responses import FileResponse
+    
+    # 参照音声ファイルのパスを取得
+    reference_path = get_reference_audio_path(word)
+    
+    if not reference_path.exists():
+        raise HTTPException(status_code=404, detail=f"Reference audio not found for word: {word}")
+    
+    return FileResponse(
+        path=str(reference_path),
+        media_type="audio/mpeg",
+        filename=f"{word}_ref.mp3"
+    )
 
 
 if __name__ == "__main__":
