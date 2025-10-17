@@ -96,39 +96,51 @@ class AudioProcessor:
                 print(traceback.format_exc())
                 # pydubが失敗したら通常の方法を試す
         
-        # soundfileで読み込み（Python 3.13対応）
-        # Updated: 2025-10-17 - Use soundfile instead of librosa
+        # まずscipyで試す（軽量、WAVファイル専用）
         try:
-            import soundfile as sf
-            audio_data, sr = sf.read(file_path, dtype='float32')
+            from scipy.io import wavfile
+            sr, audio_data = wavfile.read(file_path)
+            print(f"scipy読み込み成功: sr={sr}, shape={audio_data.shape}, dtype={audio_data.dtype}")
+            
+            # 正規化
+            if audio_data.dtype == np.int16:
+                audio_data = audio_data.astype(np.float32) / 32768.0
+            elif audio_data.dtype == np.int32:
+                audio_data = audio_data.astype(np.float32) / 2147483648.0
+            elif audio_data.dtype == np.uint8:
+                audio_data = (audio_data.astype(np.float32) - 128) / 128.0
+            
             # モノラルに変換
             if len(audio_data.shape) > 1:
                 audio_data = np.mean(audio_data, axis=1)
+            
             # リサンプリング
             if sr != self.sample_rate:
                 audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=self.sample_rate)
+            
+            print(f"scipy処理完了: 最終shape={audio_data.shape}")
             return audio_data, self.sample_rate
         except Exception as e:
-            print(f"Error loading audio with soundfile: {e}")
-            # フォールバック：scipyで読み込み
+            print(f"Error loading audio with scipy: {e}")
+            
+            # フォールバック：soundfileで読み込み（MP3などの場合）
             try:
-                from scipy.io import wavfile
-                sr, audio_data = wavfile.read(file_path)
-                # 正規化
-                if audio_data.dtype == np.int16:
-                    audio_data = audio_data.astype(np.float32) / 32768.0
-                elif audio_data.dtype == np.int32:
-                    audio_data = audio_data.astype(np.float32) / 2147483648.0
+                import soundfile as sf
+                audio_data, sr = sf.read(file_path, dtype='float32')
+                print(f"soundfile読み込み成功: sr={sr}, shape={audio_data.shape}")
+                
                 # モノラルに変換
                 if len(audio_data.shape) > 1:
                     audio_data = np.mean(audio_data, axis=1)
+                
                 # リサンプリング
                 if sr != self.sample_rate:
                     audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=self.sample_rate)
+                
                 return audio_data, self.sample_rate
             except Exception as e2:
-                print(f"Error loading audio with scipy: {e2}")
-                raise Exception(f"Could not load audio file. Tried soundfile and scipy. Errors: {str(e)}, {str(e2)}")
+                print(f"Error loading audio with soundfile: {e2}")
+                raise Exception(f"Could not load audio file. Tried scipy and soundfile. Errors: {str(e)}, {str(e2)}")
     
     def extract_features(self, audio_data: np.ndarray) -> Dict:
         """
