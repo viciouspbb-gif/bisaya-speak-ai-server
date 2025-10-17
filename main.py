@@ -116,9 +116,11 @@ async def check_pronunciation(
         file_size = file_path.stat().st_size
         
         # 発音診断を実行
+        print(f"診断リクエスト: word={word}, level={level}, file={file_path}")
         if word:
             # 参照音声ファイルのパスを取得
             reference_path = get_reference_audio_path(word)
+            print(f"参照音声パス: {reference_path}, exists={reference_path.exists()}")
             
             if reference_path.exists():
                 # 実際の音声処理で発音を比較
