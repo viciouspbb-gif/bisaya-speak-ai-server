@@ -96,13 +96,20 @@ class AudioProcessor:
                 print(traceback.format_exc())
                 # pydubが失敗したら通常の方法を試す
         
-        # librosaで読み込み（バックエンドに依存しない方法）
+        # soundfileで読み込み（Python 3.13対応）
         try:
-            audio_data, sr = librosa.load(file_path, sr=self.sample_rate, mono=True)
-            return audio_data, sr
+            import soundfile as sf
+            audio_data, sr = sf.read(file_path, dtype='float32')
+            # モノラルに変換
+            if len(audio_data.shape) > 1:
+                audio_data = np.mean(audio_data, axis=1)
+            # リサンプリング
+            if sr != self.sample_rate:
+                audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=self.sample_rate)
+            return audio_data, self.sample_rate
         except Exception as e:
-            print(f"Error loading audio with librosa: {e}")
-            # 最終手段：scipyで読み込み
+            print(f"Error loading audio with soundfile: {e}")
+            # フォールバック：scipyで読み込み
             try:
                 from scipy.io import wavfile
                 sr, audio_data = wavfile.read(file_path)
@@ -111,13 +118,16 @@ class AudioProcessor:
                     audio_data = audio_data.astype(np.float32) / 32768.0
                 elif audio_data.dtype == np.int32:
                     audio_data = audio_data.astype(np.float32) / 2147483648.0
+                # モノラルに変換
+                if len(audio_data.shape) > 1:
+                    audio_data = np.mean(audio_data, axis=1)
                 # リサンプリング
                 if sr != self.sample_rate:
                     audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=self.sample_rate)
                 return audio_data, self.sample_rate
             except Exception as e2:
                 print(f"Error loading audio with scipy: {e2}")
-                raise Exception(f"Could not load audio file. Tried librosa and scipy. Errors: {str(e)}, {str(e2)}")
+                raise Exception(f"Could not load audio file. Tried soundfile and scipy. Errors: {str(e)}, {str(e2)}")
     
     def extract_features(self, audio_data: np.ndarray) -> Dict:
         """
