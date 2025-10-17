@@ -36,10 +36,33 @@ class AudioProcessor:
         if file_path.lower().endswith(('.3gp', '.amr')):
             try:
                 from pydub import AudioSegment
+                from pydub.utils import which
                 import tempfile
                 import os
+                import subprocess
                 
                 print(f"3GPファイルを変換中: {file_path}")
+                
+                # FFmpegの存在確認
+                ffmpeg_path = which("ffmpeg")
+                print(f"FFmpeg path: {ffmpeg_path}")
+                
+                if not ffmpeg_path:
+                    # FFmpegが見つからない場合、subprocessで直接変換
+                    print("FFmpegが見つかりません。直接変換を試みます。")
+                    temp_wav = tempfile.mktemp(suffix='.wav')
+                    subprocess.run([
+                        'ffmpeg', '-i', file_path,
+                        '-ar', str(self.sample_rate),
+                        '-ac', '1',
+                        '-y',
+                        temp_wav
+                    ], check=True, capture_output=True)
+                    
+                    audio_data, sr = librosa.load(temp_wav, sr=self.sample_rate, mono=True)
+                    os.remove(temp_wav)
+                    print(f"FFmpeg直接変換成功: {len(audio_data)} samples")
+                    return audio_data, sr
                 
                 # 3GPファイルを読み込み
                 audio = AudioSegment.from_file(file_path, format="3gp")
