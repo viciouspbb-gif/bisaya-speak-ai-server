@@ -32,6 +32,9 @@ class AudioProcessor:
         import warnings
         warnings.filterwarnings('ignore')
         
+        print(f"load_audio呼び出し: file_path={file_path}, type={type(file_path)}")
+        print(f"ファイル拡張子チェック: lower={file_path.lower()}, endswith 3gp={file_path.lower().endswith('.3gp')}")
+        
         # 3GPファイルの場合、pydubで変換
         if file_path.lower().endswith(('.3gp', '.amr')):
             try:
