@@ -97,6 +97,7 @@ class AudioProcessor:
                 # pydubが失敗したら通常の方法を試す
         
         # soundfileで読み込み（Python 3.13対応）
+        # Updated: 2025-10-17 - Use soundfile instead of librosa
         try:
             import soundfile as sf
             audio_data, sr = sf.read(file_path, dtype='float32')
