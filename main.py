@@ -10,7 +10,7 @@ import shutil
 from dotenv import load_dotenv
 from audio_processor import AudioProcessor
 from conversation_engine import ConversationEngine, ScenarioManager
-from speech_recognition_service import SpeechRecognitionService, TextToSpeechService
+# from speech_recognition_service import SpeechRecognitionService, TextToSpeechService
 import asyncio
 from typing import Optional
 
@@ -55,9 +55,9 @@ except Exception as e:
 # シナリオマネージャー
 scenario_manager = ScenarioManager()
 
-# 音声認識・合成サービス
-speech_recognition_service = SpeechRecognitionService()
-text_to_speech_service = TextToSpeechService()
+# 音声認識・合成サービス（AI会話では不要なのでコメントアウト）
+# speech_recognition_service = SpeechRecognitionService()
+# text_to_speech_service = TextToSpeechService()
 
 
 @app.get("/")
