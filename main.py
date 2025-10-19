@@ -1,12 +1,21 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 import os
 from datetime import datetime
 from pathlib import Path
 import shutil
+from dotenv import load_dotenv
 from audio_processor import AudioProcessor
+from conversation_engine import ConversationEngine, ScenarioManager
+from speech_recognition_service import SpeechRecognitionService, TextToSpeechService
+import asyncio
+from typing import Optional
+
+# .envファイルを読み込み
+load_dotenv()
 
 app = FastAPI(
     title="Bisaya Speak AI API",
@@ -33,6 +42,22 @@ REFERENCE_DIR.mkdir(exist_ok=True)
 
 # AudioProcessorのインスタンス
 audio_processor = AudioProcessor()
+
+# AI会話エンジンのインスタンス（環境変数からAPIキーを取得）
+try:
+    conversation_engine = ConversationEngine()
+    print("✓ Conversation Engine initialized")
+except Exception as e:
+    print(f"⚠ Conversation Engine initialization failed: {e}")
+    print("  Set GEMINI_API_KEY environment variable to enable AI conversation features")
+    conversation_engine = None
+
+# シナリオマネージャー
+scenario_manager = ScenarioManager()
+
+# 音声認識・合成サービス
+speech_recognition_service = SpeechRecognitionService()
+text_to_speech_service = TextToSpeechService()
 
 
 @app.get("/")
@@ -254,6 +279,230 @@ async def get_reference_audio(word: str):
         media_type="audio/mpeg",
         filename=f"{word}_ref.mp3"
     )
+
+
+# ==================== AI会話機能のエンドポイント ====================
+
+@app.post("/api/conversation/session/create")
+async def create_conversation_session(
+    mode: str = Form(...),
+    level: str = Form("beginner"),
+    scenario_id: Optional[str] = Form(None)
+):
+    """
+    新しい会話セッションを作成
+    
+    Parameters:
+    - mode: 会話モード（shadowing, word_drill, roleplay, free_talk）
+    - level: ユーザーレベル（beginner, intermediate, advanced）
+    - scenario_id: シナリオID（roleplayモードの場合）
+    """
+    if not conversation_engine:
+        raise HTTPException(
+            status_code=503,
+            detail="Conversation engine not available. Please set GEMINI_API_KEY."
+        )
+    
+    try:
+        # セッションIDを生成
+        session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # セッションを作成
+        session_info = conversation_engine.create_session(session_id, mode, level)
+        
+        # ロールプレイの場合、シナリオ情報を追加
+        if mode == "roleplay" and scenario_id:
+            scenario = scenario_manager.get_scenario(scenario_id)
+            if scenario:
+                session_info["scenario"] = scenario
+                # 最初のメッセージを生成
+                first_message = scenario["opening"]
+                session_info["first_message"] = first_message
+        
+        return JSONResponse(content={
+            "status": "success",
+            "data": session_info
+        })
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/conversation/message")
+async def send_conversation_message(
+    session_id: str = Form(...),
+    audio: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None)
+):
+    """
+    会話メッセージを送信
+    
+    Parameters:
+    - session_id: セッションID
+    - audio: 音声ファイル（オプション）
+    - text: テキストメッセージ（オプション）
+    """
+    if not conversation_engine:
+        raise HTTPException(
+            status_code=503,
+            detail="Conversation engine not available."
+        )
+    
+    try:
+        user_message = text
+        transcription = None
+        
+        # 音声ファイルがある場合は文字起こし
+        if audio:
+            # 音声ファイルを保存
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{timestamp}_{audio.filename}"
+            file_path = UPLOAD_DIR / filename
+            
+            with file_path.open("wb") as buffer:
+                shutil.copyfileobj(audio.file, buffer)
+            
+            # 音声認識
+            recognition_result = speech_recognition_service.transcribe_audio(
+                str(file_path),
+                language="bisaya"
+            )
+            
+            if recognition_result["status"] == "success":
+                transcription = recognition_result["transcription"]
+                user_message = transcription
+        
+        if not user_message:
+            raise HTTPException(
+                status_code=400,
+                detail="Either audio or text message is required"
+            )
+        
+        # AI応答を生成（音声ファイルも自動生成される）
+        response = await conversation_engine.send_message(
+            session_id,
+            user_message,
+            transcription
+        )
+        
+        # レスポンスをログ出力
+        print(f"📤 Response: {response}")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "data": response,
+            "transcription": transcription
+        })
+        
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/conversation/session/{session_id}/summary")
+async def get_session_summary(session_id: str):
+    """会話セッションのサマリーを取得"""
+    if not conversation_engine:
+        raise HTTPException(
+            status_code=503,
+            detail="Conversation engine not available."
+        )
+    
+    try:
+        summary = conversation_engine.get_session_summary(session_id)
+        return JSONResponse(content={
+            "status": "success",
+            "data": summary
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/conversation/session/{session_id}/feedback")
+async def get_session_feedback(session_id: str):
+    """会話セッションのフィードバックを取得"""
+    if not conversation_engine:
+        raise HTTPException(
+            status_code=503,
+            detail="Conversation engine not available."
+        )
+    
+    try:
+        feedback = conversation_engine.generate_feedback(session_id)
+        return JSONResponse(content={
+            "status": "success",
+            "data": feedback
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scenarios")
+async def list_scenarios(difficulty: Optional[str] = None):
+    """シナリオ一覧を取得"""
+    try:
+        scenarios = scenario_manager.list_scenarios(difficulty)
+        return JSONResponse(content={
+            "status": "success",
+            "data": scenarios
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scenarios/{scenario_id}")
+async def get_scenario(scenario_id: str):
+    """特定のシナリオを取得"""
+    try:
+        scenario = scenario_manager.get_scenario(scenario_id)
+        if not scenario:
+            raise HTTPException(status_code=404, detail="Scenario not found")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "data": scenario
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/speech/transcribe")
+async def transcribe_speech(
+    audio: UploadFile = File(...),
+    language: str = Form("bisaya")
+):
+    """音声を文字起こし"""
+    try:
+        # 音声ファイルを保存
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{timestamp}_{audio.filename}"
+        file_path = UPLOAD_DIR / filename
+        
+        with file_path.open("wb") as buffer:
+            shutil.copyfileobj(audio.file, buffer)
+        
+        # 音声認識
+        result = speech_recognition_service.transcribe_audio(
+            str(file_path),
+            language=language
+        )
+        
+        return JSONResponse(content={
+            "status": "success",
+            "data": result
+        })
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# 音声ファイル配信用のディレクトリをマウント
+audio_files_dir = Path("audio_files")
+audio_files_dir.mkdir(exist_ok=True)
+app.mount("/audio", StaticFiles(directory="audio_files"), name="audio")
 
 
 if __name__ == "__main__":
