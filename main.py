@@ -61,8 +61,9 @@ scenario_manager = ScenarioManager()
 
 
 @app.get("/")
+@app.head("/")
 async def root():
-    """ヘルスチェック用エンドポイント"""
+    """ヘルスチェック用エンドポイント（GET/HEADメソッド対応）"""
     return {
         "status": "ok",
         "message": "Bisaya Speak AI is running",
