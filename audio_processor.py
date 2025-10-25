@@ -278,7 +278,7 @@ class AudioProcessor:
         
         print(f"スコア: {similarity_score:.2f}")
         
-        return max(0, min(100, similarity_score))
+        return float(max(0, min(100, similarity_score)))
     
     def compare_pronunciation(
         self,
