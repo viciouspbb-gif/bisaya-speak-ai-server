@@ -174,25 +174,25 @@ class AudioProcessor:
             if pitch > 0:
                 pitch_values.append(pitch)
         
-        features['pitch_mean'] = np.mean(pitch_values) if pitch_values else 0
-        features['pitch_std'] = np.std(pitch_values) if pitch_values else 0
+        features['pitch_mean'] = float(np.mean(pitch_values)) if pitch_values else 0.0
+        features['pitch_std'] = float(np.std(pitch_values)) if pitch_values else 0.0
         
         # スペクトル重心
         spectral_centroids = librosa.feature.spectral_centroid(y=audio_data, sr=self.sample_rate)[0]
-        features['spectral_centroid_mean'] = np.mean(spectral_centroids)
-        features['spectral_centroid_std'] = np.std(spectral_centroids)
+        features['spectral_centroid_mean'] = float(np.mean(spectral_centroids))
+        features['spectral_centroid_std'] = float(np.std(spectral_centroids))
         
         # ゼロ交差率
         zero_crossing_rate = librosa.feature.zero_crossing_rate(audio_data)[0]
-        features['zero_crossing_rate_mean'] = np.mean(zero_crossing_rate)
+        features['zero_crossing_rate_mean'] = float(np.mean(zero_crossing_rate))
         
         # RMS エネルギー
         rms = librosa.feature.rms(y=audio_data)[0]
-        features['rms_mean'] = np.mean(rms)
-        features['rms_std'] = np.std(rms)
+        features['rms_mean'] = float(np.mean(rms))
+        features['rms_std'] = float(np.std(rms))
         
         # 音声の長さ
-        features['duration'] = len(audio_data) / self.sample_rate
+        features['duration'] = float(len(audio_data) / self.sample_rate)
         
         return features
     
