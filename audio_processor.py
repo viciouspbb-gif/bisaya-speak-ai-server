@@ -33,101 +33,80 @@ class AudioProcessor:
         warnings.filterwarnings('ignore')
         
         print(f"load_audio呼び出し: file_path={file_path}, type={type(file_path)}")
-        print(f"ファイル拡張子チェック: lower={file_path.lower()}, endswith 3gp={file_path.lower().endswith('.3gp')}")
         
-        # 3GPファイルの場合、pydubで変換
-        if file_path.lower().endswith(('.3gp', '.amr')):
+        # ファイルの存在確認
+        if not Path(file_path).exists():
+            raise FileNotFoundError(f"Audio file not found: {file_path}")
+        
+        # ファイル拡張子を取得
+        file_extension = Path(file_path).suffix.lower()
+        print(f"ファイル拡張子: {file_extension}")
+        
+        # 3GP/AMRファイルの場合、FFmpegで変換
+        if file_extension in ['.3gp', '.amr']:
             try:
-                from pydub import AudioSegment
-                from pydub.utils import which
+                import subprocess
                 import tempfile
                 import os
-                import subprocess
                 
-                print(f"3GPファイルを変換中: {file_path}")
+                print(f"3GP/AMRファイルを変換中: {file_path}")
                 
-                # FFmpegの存在確認
-                ffmpeg_path = which("ffmpeg")
-                print(f"FFmpeg path: {ffmpeg_path}")
+                # 一時WAVファイルを作成
+                temp_wav = tempfile.mktemp(suffix='.wav')
                 
-                if not ffmpeg_path:
-                    # FFmpegが見つからない場合、subprocessで直接変換
-                    print("FFmpegが見つかりません。直接変換を試みます。")
-                    temp_wav = tempfile.mktemp(suffix='.wav')
-                    subprocess.run([
+                # FFmpegで変換（より堅牢な方法）
+                try:
+                    result = subprocess.run([
                         'ffmpeg', '-i', file_path,
                         '-ar', str(self.sample_rate),
                         '-ac', '1',
                         '-y',
                         temp_wav
-                    ], check=True, capture_output=True)
-                    
-                    audio_data, sr = librosa.load(temp_wav, sr=self.sample_rate, mono=True)
-                    os.remove(temp_wav)
-                    print(f"FFmpeg直接変換成功: {len(audio_data)} samples")
-                    return audio_data, sr
-                
-                # 3GPファイルを読み込み
-                audio = AudioSegment.from_file(file_path, format="3gp")
-                
-                # モノラルに変換
-                audio = audio.set_channels(1)
-                
-                # サンプリングレートを設定
-                audio = audio.set_frame_rate(self.sample_rate)
-                
-                # 一時WAVファイルを作成
-                temp_wav = tempfile.mktemp(suffix='.wav')
-                
-                # WAVとしてエクスポート
-                audio.export(temp_wav, format="wav")
+                    ], check=True, capture_output=True, text=True, timeout=30)
+                    print(f"FFmpeg変換成功")
+                except subprocess.CalledProcessError as e:
+                    print(f"FFmpeg変換エラー: {e.stderr}")
+                    raise Exception(f"FFmpeg conversion failed: {e.stderr}")
+                except FileNotFoundError:
+                    print("FFmpegが見つかりません。pydubで試します。")
+                    # pydubで変換を試みる
+                    from pydub import AudioSegment
+                    audio = AudioSegment.from_file(file_path)
+                    audio = audio.set_channels(1)
+                    audio = audio.set_frame_rate(self.sample_rate)
+                    audio.export(temp_wav, format="wav")
+                    print(f"pydub変換成功")
                 
                 # WAVファイルを読み込み
                 audio_data, sr = librosa.load(temp_wav, sr=self.sample_rate, mono=True)
                 
                 # 一時ファイルを削除
-                os.remove(temp_wav)
+                if os.path.exists(temp_wav):
+                    os.remove(temp_wav)
                 
-                print(f"3GP変換成功: {len(audio_data)} samples")
+                print(f"3GP/AMR変換成功: {len(audio_data)} samples")
                 return audio_data, sr
+                
             except Exception as e:
-                print(f"Error converting 3GP with pydub: {e}")
+                print(f"Error converting 3GP/AMR: {e}")
                 import traceback
                 print(traceback.format_exc())
-                # pydubが失敗したら通常の方法を試す
+                raise Exception(f"Failed to convert 3GP/AMR file: {str(e)}")
         
-        # まずscipyで試す（軽量、WAVファイル専用）
-        try:
-            from scipy.io import wavfile
-            sr, audio_data = wavfile.read(file_path)
-            print(f"scipy読み込み成功: sr={sr}, shape={audio_data.shape}, dtype={audio_data.dtype}")
-            
-            # 正規化
-            if audio_data.dtype == np.int16:
-                audio_data = audio_data.astype(np.float32) / 32768.0
-            elif audio_data.dtype == np.int32:
-                audio_data = audio_data.astype(np.float32) / 2147483648.0
-            elif audio_data.dtype == np.uint8:
-                audio_data = (audio_data.astype(np.float32) - 128) / 128.0
-            
-            # モノラルに変換
-            if len(audio_data.shape) > 1:
-                audio_data = np.mean(audio_data, axis=1)
-            
-            # リサンプリング
-            if sr != self.sample_rate:
-                audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=self.sample_rate)
-            
-            print(f"scipy処理完了: 最終shape={audio_data.shape}")
-            return audio_data, self.sample_rate
-        except Exception as e:
-            print(f"Error loading audio with scipy: {e}")
-            
-            # フォールバック：soundfileで読み込み（MP3などの場合）
+        # WAVファイルの場合、scipyで試す（軽量）
+        if file_extension == '.wav':
             try:
-                import soundfile as sf
-                audio_data, sr = sf.read(file_path, dtype='float32')
-                print(f"soundfile読み込み成功: sr={sr}, shape={audio_data.shape}")
+                from scipy.io import wavfile
+                sr, audio_data = wavfile.read(file_path)
+                print(f"scipy読み込み成功: sr={sr}, shape={audio_data.shape}, dtype={audio_data.dtype}")
+                
+                # 正規化
+                if audio_data.dtype == np.int16:
+                    audio_data = audio_data.astype(np.float32) / 32768.0
+                elif audio_data.dtype == np.int32:
+                    audio_data = audio_data.astype(np.float32) / 2147483648.0
+                elif audio_data.dtype == np.uint8:
+                    audio_data = (audio_data.astype(np.float32) - 128) / 128.0
                 
                 # モノラルに変換
                 if len(audio_data.shape) > 1:
@@ -137,10 +116,39 @@ class AudioProcessor:
                 if sr != self.sample_rate:
                     audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=self.sample_rate)
                 
+                print(f"scipy処理完了: 最終shape={audio_data.shape}")
+                return audio_data, self.sample_rate
+            except Exception as e:
+                print(f"scipy読み込みエラー: {e}")
+                # 次の方法にフォールバック
+        
+        # MP3, M4A, OGG, FLACなどの場合、soundfileまたはlibrosaで読み込み
+        try:
+            import soundfile as sf
+            audio_data, sr = sf.read(file_path, dtype='float32')
+            print(f"soundfile読み込み成功: sr={sr}, shape={audio_data.shape}")
+            
+            # モノラルに変換
+            if len(audio_data.shape) > 1:
+                audio_data = np.mean(audio_data, axis=1)
+            
+            # リサンプリング
+            if sr != self.sample_rate:
+                audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=self.sample_rate)
+            
+            print(f"soundfile処理完了: 最終shape={audio_data.shape}")
+            return audio_data, self.sample_rate
+        except Exception as e:
+            print(f"soundfile読み込みエラー: {e}")
+            
+            # 最終フォールバック：librosaで読み込み（最も汎用的だが遅い）
+            try:
+                audio_data, sr = librosa.load(file_path, sr=self.sample_rate, mono=True)
+                print(f"librosa読み込み成功: shape={audio_data.shape}")
                 return audio_data, self.sample_rate
             except Exception as e2:
-                print(f"Error loading audio with soundfile: {e2}")
-                raise Exception(f"Could not load audio file. Tried scipy and soundfile. Errors: {str(e)}, {str(e2)}")
+                print(f"librosa読み込みエラー: {e2}")
+                raise Exception(f"Could not load audio file with any method. File: {file_path}, Extension: {file_extension}. Errors: {str(e)}, {str(e2)}")
     
     def extract_features(self, audio_data: np.ndarray) -> Dict:
         """
@@ -241,24 +249,32 @@ class AudioProcessor:
         
         # 距離を類似度スコアに変換（0-100の範囲）
         # 距離が小さいほど類似度が高い
-        # 実際の測定値に基づいて調整:
-        # - 完璧な発音: 5000以下 → 90-100点
-        # - 良い発音: 5000-15000 → 60-90点
-        # - まあまあ: 15000-25000 → 30-60点
-        # - 悪い/無音: 25000以上 → 0-30点
+        # 非常に厳しい基準:
+        # - 素晴らしい: 2500以下 → 85-100点
+        # - 良い: 2500-6000 → 70-85点
+        # - まあまあ: 6000-12000 → 50-70点
+        # - 要改善: 12000-20000 → 30-50点
+        # - 悪い: 20000-30000 → 10-30点
+        # - 不合格: 30000以上 → 0-10点
         
-        if distance < 5000:
-            # 完璧な発音
-            similarity_score = 90 + (1 - distance / 5000) * 10
-        elif distance < 15000:
+        if distance < 2500:
+            # 素晴らしい発音（ネイティブに近い）
+            similarity_score = 85 + (1 - distance / 2500) * 15
+        elif distance < 6000:
             # 良い発音
-            similarity_score = 60 + (1 - (distance - 5000) / 10000) * 30
-        elif distance < 25000:
+            similarity_score = 70 + (1 - (distance - 2500) / 3500) * 15
+        elif distance < 12000:
             # まあまあ
-            similarity_score = 30 + (1 - (distance - 15000) / 10000) * 30
+            similarity_score = 50 + (1 - (distance - 6000) / 6000) * 20
+        elif distance < 20000:
+            # 要改善
+            similarity_score = 30 + (1 - (distance - 12000) / 8000) * 20
+        elif distance < 30000:
+            # 悪い（手本と大きく異なる）
+            similarity_score = 10 + (1 - (distance - 20000) / 10000) * 20
         else:
-            # 悪い/無音
-            similarity_score = max(0, 30 - (distance - 25000) / 1000)
+            # 不合格（無音または全く違う発音）
+            similarity_score = max(0, 10 - (distance - 30000) / 5000)
         
         print(f"スコア: {similarity_score:.2f}")
         
@@ -285,15 +301,71 @@ class AudioProcessor:
         user_audio, _ = self.load_audio(user_audio_path)
         user_features = self.extract_features(user_audio)
         
+        # 無音検出：RMSエネルギーが非常に低い場合は0点
+        if user_features['rms_mean'] < 0.001:
+            print(f"無音検出: RMS={user_features['rms_mean']}")
+            # 参照音声も読み込んで特徴量を取得（レスポンス用）
+            reference_audio, _ = self.load_audio(reference_audio_path)
+            reference_features = self.extract_features(reference_audio)
+            
+            feedback = self.generate_feedback(
+                0,  # スコア0
+                user_features,
+                reference_features,
+                user_level
+            )
+            
+            return {
+                "similarity_score": 0,
+                "user_features": {
+                    "duration": user_features['duration'],
+                    "pitch_mean": float(user_features['pitch_mean']),
+                    "pitch_std": float(user_features['pitch_std']),
+                },
+                "reference_features": {
+                    "duration": reference_features['duration'],
+                    "pitch_mean": float(reference_features['pitch_mean']),
+                    "pitch_std": float(reference_features['pitch_std']),
+                },
+                "feedback": feedback,
+                "level": user_level
+            }
+        
         # 参照音声を読み込み
         reference_audio, _ = self.load_audio(reference_audio_path)
         reference_features = self.extract_features(reference_audio)
         
         # DTWで類似度を計算
-        similarity_score = self.calculate_dtw_similarity(
+        dtw_score = self.calculate_dtw_similarity(
             user_features['mfcc'],
             reference_features['mfcc']
         )
+        
+        print(f"DTWスコア: {dtw_score:.2f}")
+        
+        # ピッチの差をペナルティとして計算
+        pitch_diff = abs(user_features['pitch_mean'] - reference_features['pitch_mean'])
+        pitch_diff_percent = (pitch_diff / reference_features['pitch_mean'] * 100) if reference_features['pitch_mean'] > 0 else 0
+        pitch_penalty = min(30, pitch_diff_percent / 2)  # 最大30点減点
+        print(f"ピッチ差: {pitch_diff:.2f}Hz ({pitch_diff_percent:.1f}%), ペナルティ: {pitch_penalty:.1f}点")
+        
+        # 音量の差をペナルティとして計算
+        rms_diff = abs(user_features['rms_mean'] - reference_features['rms_mean'])
+        rms_diff_percent = (rms_diff / reference_features['rms_mean'] * 100) if reference_features['rms_mean'] > 0 else 0
+        rms_penalty = min(20, rms_diff_percent / 3)  # 最大20点減点
+        print(f"音量差: {rms_diff:.4f} ({rms_diff_percent:.1f}%), ペナルティ: {rms_penalty:.1f}点")
+        
+        # 長さの差をペナルティとして計算
+        duration_diff = abs(user_features['duration'] - reference_features['duration'])
+        duration_diff_percent = (duration_diff / reference_features['duration'] * 100) if reference_features['duration'] > 0 else 0
+        duration_penalty = min(20, duration_diff_percent / 2)  # 最大20点減点
+        print(f"長さ差: {duration_diff:.2f}秒 ({duration_diff_percent:.1f}%), ペナルティ: {duration_penalty:.1f}点")
+        
+        # 総合スコア = DTWスコア - ペナルティ
+        total_penalty = pitch_penalty + rms_penalty + duration_penalty
+        similarity_score = max(0, dtw_score - total_penalty)
+        print(f"総合ペナルティ: {total_penalty:.1f}点")
+        print(f"最終スコア: {similarity_score:.2f} (DTW: {dtw_score:.2f} - ペナルティ: {total_penalty:.1f})")
         
         # レベルに応じたフィードバックを生成
         feedback = self.generate_feedback(
@@ -340,83 +412,143 @@ class AudioProcessor:
         Returns:
         - feedback: フィードバック辞書
         """
-        # レベル別の評価基準
-        thresholds = {
-            "beginner": {"excellent": 75, "good": 60, "fair": 45},
-            "intermediate": {"excellent": 85, "good": 70, "fair": 55},
-            "advanced": {"excellent": 90, "good": 80, "fair": 65}
-        }
-        
-        level_thresholds = thresholds.get(user_level, thresholds["beginner"])
-        
-        # 総合評価を決定（日本語）
-        if similarity_score >= level_thresholds["excellent"]:
+        # 明確な評価基準（全レベル共通）
+        # ユーザーが理解しやすいシンプルな基準
+        if similarity_score >= 85:
             overall_rating = "素晴らしい"
-            overall_message = "とても良い発音です！ネイティブに近い発音ができています。"
-        elif similarity_score >= level_thresholds["good"]:
+            overall_message = "✨ 素晴らしい発音です！ネイティブに近い発音ができています。"
+            rating_emoji = "🌟"
+        elif similarity_score >= 70:
             overall_rating = "良い"
-            overall_message = "良い発音です！さらに練習して上達しましょう。"
-        elif similarity_score >= level_thresholds["fair"]:
+            overall_message = "👍 良い発音です！この調子で練習を続けましょう。"
+            rating_emoji = "😊"
+        elif similarity_score >= 50:
             overall_rating = "まあまあ"
-            overall_message = "まあまあの発音です。下記の詳細を参考に改善しましょう。"
-        else:
+            overall_message = "📝 まあまあの発音です。下記の詳細を参考に改善しましょう。"
+            rating_emoji = "🤔"
+        elif similarity_score >= 30:
             overall_rating = "要改善"
-            overall_message = "練習を続けましょう！下記のフィードバックに注意してください。"
+            overall_message = "💪 練習が必要です。下記のフィードバックに注意してください。"
+            rating_emoji = "😓"
+        else:
+            overall_rating = "不合格"
+            overall_message = "❌ 発音が大きく異なります。参照音声をよく聞いて、繰り返し練習してください。"
+            rating_emoji = "😢"
         
         # 詳細なフィードバックを生成
         details = []
         
+        # スコアに応じたフィードバックレベル
+        is_very_low_score = similarity_score < 30  # 非常に悪い
+        is_low_score = 30 <= similarity_score < 50  # 悪い
+        is_medium_score = 50 <= similarity_score < 70  # 普通
+        
         # ピッチの比較
         pitch_diff = abs(user_features['pitch_mean'] - reference_features['pitch_mean'])
-        if pitch_diff > 50:
-            if user_features['pitch_mean'] > reference_features['pitch_mean']:
-                details.append({
-                    "aspect": "ピッチ",
-                    "comment": "ピッチが少し高めです。もう少し低く話してみましょう。"
-                })
-            else:
-                details.append({
-                    "aspect": "ピッチ",
-                    "comment": "ピッチが少し低めです。もう少し高く話してみましょう。"
-                })
-        else:
-            details.append({
-                "aspect": "ピッチ",
-                "comment": "ピッチが良いです！"
-            })
+        pitch_diff_percent = (pitch_diff / reference_features['pitch_mean'] * 100) if reference_features['pitch_mean'] > 0 else 0
         
-        # 音声の長さの比較
-        duration_diff = abs(user_features['duration'] - reference_features['duration'])
-        if duration_diff > 0.5:
-            if user_features['duration'] > reference_features['duration']:
-                details.append({
-                    "aspect": "タイミング",
-                    "comment": "少しゆっくり話しています。ネイティブのペースに合わせてみましょう。"
-                })
+        # ピッチスコアを計算（0-100）
+        pitch_score = max(0, min(100, 100 - pitch_diff_percent))
+        
+        # 総合スコアが低い場合は、ピッチスコアも厳しく評価
+        if is_very_low_score:
+            pitch_score = min(pitch_score, 29)  # 最大29点
+        elif is_low_score:
+            pitch_score = min(pitch_score, 49)  # 最大49点
+        
+        # ピッチスコアに基づいてコメントを生成
+        if pitch_score >= 70:
+            pitch_comment = "✅ ピッチが良いです！"
+        elif pitch_score >= 50:
+            if user_features['pitch_mean'] > reference_features['pitch_mean']:
+                pitch_comment = "⚠️ ピッチが少し高めです。もう少し低く話してみましょう。"
             else:
-                details.append({
-                    "aspect": "タイミング",
-                    "comment": "少し早口です。もう少しゆっくり話してみましょう。"
-                })
+                pitch_comment = "⚠️ ピッチが少し低めです。もう少し高く話してみましょう。"
         else:
-            details.append({
-                "aspect": "タイミング",
-                "comment": "タイミングが素晴らしいです！"
-            })
+            if user_features['pitch_mean'] > reference_features['pitch_mean']:
+                pitch_comment = "❌ ピッチが違います。声が高すぎます。参照音声のように低く話してください。"
+            else:
+                pitch_comment = "❌ ピッチが違います。声が低すぎます。参照音声のように高く話してください。"
+        
+        details.append({
+            "aspect": "ピッチ",
+            "comment": pitch_comment,
+            "score": round(pitch_score, 1)
+        })
+        
+        # 音声の長さ（タイミング）の比較
+        duration_diff = abs(user_features['duration'] - reference_features['duration'])
+        duration_diff_percent = (duration_diff / reference_features['duration'] * 100) if reference_features['duration'] > 0 else 0
+        
+        # タイミングスコアを計算（0-100）
+        timing_score = max(0, min(100, 100 - duration_diff_percent))
+        
+        # 総合スコアが低い場合は、タイミングスコアも厳しく評価
+        if is_very_low_score:
+            timing_score = min(timing_score, 29)  # 最大29点
+        elif is_low_score:
+            timing_score = min(timing_score, 49)  # 最大49点
+        
+        # タイミングスコアに基づいてコメントを生成
+        if timing_score >= 70:
+            timing_comment = "✅ タイミングが素晴らしいです！"
+        elif timing_score >= 50:
+            if user_features['duration'] > reference_features['duration']:
+                timing_comment = "⚠️ 少しゆっくり話しています。ネイティブのペースに合わせてみましょう。"
+            else:
+                timing_comment = "⚠️ 少し早口です。もう少しゆっくり話してみましょう。"
+        else:
+            if user_features['duration'] > reference_features['duration']:
+                timing_comment = "❌ タイミングが違います。かなりゆっくり話しています。参照音声のペースに合わせてください。"
+            else:
+                timing_comment = "❌ タイミングが違います。かなり早口です。参照音声のようにゆっくり話してください。"
+        
+        details.append({
+            "aspect": "タイミング",
+            "comment": timing_comment,
+            "score": round(timing_score, 1)
+        })
         
         # エネルギー（音量）の比較
         rms_diff = abs(user_features['rms_mean'] - reference_features['rms_mean'])
-        if rms_diff > 0.05:
+        rms_diff_percent = (rms_diff / reference_features['rms_mean'] * 100) if reference_features['rms_mean'] > 0 else 0
+        
+        # 音量スコアを計算（0-100）
+        volume_score = max(0, min(100, 100 - rms_diff_percent))
+        
+        # 総合スコアが低い場合は、音量スコアも厳しく評価
+        if is_very_low_score:
+            volume_score = min(volume_score, 29)  # 最大29点
+        elif is_low_score:
+            volume_score = min(volume_score, 49)  # 最大49点
+        
+        # 音量スコアに基づいてコメントを生成
+        if volume_score >= 70:
+            volume_comment = "✅ 音量が良いです！"
+        elif volume_score >= 50:
             if user_features['rms_mean'] > reference_features['rms_mean']:
-                details.append({
-                    "aspect": "音量",
-                    "comment": "もう少し小さな声で話してみましょう。"
-                })
+                volume_comment = "⚠️ もう少し小さな声で話してみましょう。"
             else:
-                details.append({
-                    "aspect": "音量",
-                    "comment": "もう少し大きな声ではっきりと話してみましょう。"
-                })
+                volume_comment = "⚠️ もう少し大きな声ではっきりと話してみましょう。"
+        else:
+            if user_features['rms_mean'] > reference_features['rms_mean']:
+                volume_comment = "❌ 音量が違います。声が大きすぎます。参照音声のように小さな声で話してください。"
+            else:
+                volume_comment = "❌ 音量が違います。声が小さすぎます。参照音声のようにはっきりと話してください。"
+        
+        details.append({
+            "aspect": "音量",
+            "comment": volume_comment,
+            "score": round(volume_score, 1)
+        })
+        
+        # スコアが非常に低い場合は、全体的な改善点を追加
+        if is_very_low_score:
+            details.append({
+                "aspect": "全体評価",
+                "comment": "❌ 発音が参照音声と大きく異なります。参照音声をよく聞いて、繰り返し練習してください。",
+                "score": round(similarity_score, 1)
+            })
         
         # レベル別の追加アドバイス
         if user_level == "beginner":
