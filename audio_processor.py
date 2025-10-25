@@ -249,32 +249,32 @@ class AudioProcessor:
         
         # 距離を類似度スコアに変換（0-100の範囲）
         # 距離が小さいほど類似度が高い
-        # 非常に厳しい基準:
-        # - 素晴らしい: 2500以下 → 85-100点
-        # - 良い: 2500-6000 → 70-85点
-        # - まあまあ: 6000-12000 → 50-70点
-        # - 要改善: 12000-20000 → 30-50点
-        # - 悪い: 20000-30000 → 10-30点
-        # - 不合格: 30000以上 → 0-10点
+        # 優しめの基準:
+        # - 素晴らしい: 3000以下 → 85-100点
+        # - 良い: 3000-8000 → 70-85点
+        # - まあまあ: 8000-15000 → 55-70点
+        # - 要改善: 15000-25000 → 40-55点
+        # - もう少し: 25000-40000 → 25-40点
+        # - 頑張ろう: 40000以上 → 20-25点
         
-        if distance < 2500:
+        if distance < 3000:
             # 素晴らしい発音（ネイティブに近い）
-            similarity_score = 85 + (1 - distance / 2500) * 15
-        elif distance < 6000:
+            similarity_score = 85 + (1 - distance / 3000) * 15
+        elif distance < 8000:
             # 良い発音
-            similarity_score = 70 + (1 - (distance - 2500) / 3500) * 15
-        elif distance < 12000:
+            similarity_score = 70 + (1 - (distance - 3000) / 5000) * 15
+        elif distance < 15000:
             # まあまあ
-            similarity_score = 50 + (1 - (distance - 6000) / 6000) * 20
-        elif distance < 20000:
+            similarity_score = 55 + (1 - (distance - 8000) / 7000) * 15
+        elif distance < 25000:
             # 要改善
-            similarity_score = 30 + (1 - (distance - 12000) / 8000) * 20
-        elif distance < 30000:
-            # 悪い（手本と大きく異なる）
-            similarity_score = 10 + (1 - (distance - 20000) / 10000) * 20
+            similarity_score = 40 + (1 - (distance - 15000) / 10000) * 15
+        elif distance < 40000:
+            # もう少し
+            similarity_score = 25 + (1 - (distance - 25000) / 15000) * 15
         else:
-            # 不合格（無音または全く違う発音）
-            similarity_score = max(0, 10 - (distance - 30000) / 5000)
+            # 頑張ろう
+            similarity_score = max(20, 25 - (distance - 40000) / 10000)
         
         print(f"スコア: {similarity_score:.2f}")
         
@@ -346,24 +346,24 @@ class AudioProcessor:
         # ピッチの差をペナルティとして計算
         pitch_diff = abs(user_features['pitch_mean'] - reference_features['pitch_mean'])
         pitch_diff_percent = (pitch_diff / reference_features['pitch_mean'] * 100) if reference_features['pitch_mean'] > 0 else 0
-        pitch_penalty = min(30, pitch_diff_percent / 2)  # 最大30点減点
+        pitch_penalty = min(15, pitch_diff_percent / 4)  # 最大15点減点
         print(f"ピッチ差: {pitch_diff:.2f}Hz ({pitch_diff_percent:.1f}%), ペナルティ: {pitch_penalty:.1f}点")
         
         # 音量の差をペナルティとして計算
         rms_diff = abs(user_features['rms_mean'] - reference_features['rms_mean'])
         rms_diff_percent = (rms_diff / reference_features['rms_mean'] * 100) if reference_features['rms_mean'] > 0 else 0
-        rms_penalty = min(20, rms_diff_percent / 3)  # 最大20点減点
+        rms_penalty = min(10, rms_diff_percent / 5)  # 最大10点減点
         print(f"音量差: {rms_diff:.4f} ({rms_diff_percent:.1f}%), ペナルティ: {rms_penalty:.1f}点")
         
         # 長さの差をペナルティとして計算
         duration_diff = abs(user_features['duration'] - reference_features['duration'])
         duration_diff_percent = (duration_diff / reference_features['duration'] * 100) if reference_features['duration'] > 0 else 0
-        duration_penalty = min(20, duration_diff_percent / 2)  # 最大20点減点
+        duration_penalty = min(10, duration_diff_percent / 4)  # 最大10点減点
         print(f"長さ差: {duration_diff:.2f}秒 ({duration_diff_percent:.1f}%), ペナルティ: {duration_penalty:.1f}点")
         
         # 総合スコア = DTWスコア - ペナルティ
         total_penalty = pitch_penalty + rms_penalty + duration_penalty
-        similarity_score = max(0, dtw_score - total_penalty)
+        similarity_score = max(20, dtw_score - total_penalty)
         print(f"総合ペナルティ: {total_penalty:.1f}点")
         print(f"最終スコア: {similarity_score:.2f} (DTW: {dtw_score:.2f} - ペナルティ: {total_penalty:.1f})")
         
