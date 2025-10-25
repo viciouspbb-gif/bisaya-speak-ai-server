@@ -318,12 +318,12 @@ class AudioProcessor:
             return {
                 "similarity_score": 0,
                 "user_features": {
-                    "duration": user_features['duration'],
+                    "duration": float(user_features['duration']),
                     "pitch_mean": float(user_features['pitch_mean']),
                     "pitch_std": float(user_features['pitch_std']),
                 },
                 "reference_features": {
-                    "duration": reference_features['duration'],
+                    "duration": float(reference_features['duration']),
                     "pitch_mean": float(reference_features['pitch_mean']),
                     "pitch_std": float(reference_features['pitch_std']),
                 },
@@ -378,12 +378,12 @@ class AudioProcessor:
         comparison = {
             "similarity_score": round(similarity_score, 2),
             "user_features": {
-                "duration": user_features['duration'],
+                "duration": float(user_features['duration']),
                 "pitch_mean": float(user_features['pitch_mean']),
                 "pitch_std": float(user_features['pitch_std']),
             },
             "reference_features": {
-                "duration": reference_features['duration'],
+                "duration": float(reference_features['duration']),
                 "pitch_mean": float(reference_features['pitch_mean']),
                 "pitch_std": float(reference_features['pitch_std']),
             },
